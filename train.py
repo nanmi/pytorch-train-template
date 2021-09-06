@@ -5,13 +5,14 @@ import torch.backends.cudnn as cudnn
 import torch.optim
 import os
 import argparse
+from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.cuda import amp
+import wandb
+
 from utils import dataloader
 from model import model
 from utils import loss
-from torch.cuda import amp
-from torch.nn.parallel import DistributedDataParallel as DDP
 
-import wandb
 wandb.init(project="720-train-zero-dce")
 
 
@@ -31,7 +32,7 @@ def train(config):
 	rank = int(os.environ["RANK"])
 	local_rank = int(os.environ["LOCAL_RANK"])
 	torch.cuda.set_device(rank % torch.cuda.device_count())
-	torch.distributed.init_process_group(backend='nccl', init_method='env://')
+	torch.distributed.init_process_group(backend='nccl', init_method='env://') # cpu : gloo; gpu : nccl 
 	device = torch.device("cuda", local_rank)
 
 	print(f"[init] == local rank: {local_rank}, global rank: {rank} ==")
@@ -69,7 +70,7 @@ def train(config):
 	
 	# 4. start to train
 	net.train()
-	# scaler = amp.GradScaler()
+	scaler = amp.GradScaler()
 	for epoch in range(1, config.epochs + 1):
 		train_loss = correct = total = 0
 		# set sampler
@@ -77,26 +78,26 @@ def train(config):
 
 		for iteration, img_lowlight in enumerate(train_loader):
 			img_lowlight = img_lowlight.cuda()
-			# with amp.aotucast():
-			enhanced_image_1, enhanced_image, A  = net(img_lowlight)
-			# best_loss
-			Loss_TV = 200*L_TV(A)
-			loss_spa = torch.mean(L_spa(enhanced_image, img_lowlight))
-			loss_col = 5*torch.mean(L_color(enhanced_image))
-			loss_exp = 10*torch.mean(L_exp(enhanced_image))
-			loss_ =  Loss_TV + loss_spa + loss_col + loss_exp
+			with amp.autocast():
+				enhanced_image_1, enhanced_image, A  = net(img_lowlight)
+				# best_loss
+				Loss_TV = 200*L_TV(A)
+				loss_spa = torch.mean(L_spa(enhanced_image, img_lowlight))
+				loss_col = 5*torch.mean(L_color(enhanced_image))
+				loss_exp = 10*torch.mean(L_exp(enhanced_image))
+				loss_ =  Loss_TV + loss_spa + loss_col + loss_exp
 			
 			#
 			wandb.log({'epoch': epoch, 'loss': loss_})
-			# scaler.scale(loss).backward()
-			# torch.nn.utils.clip_grad_norm(DCE_net.parameters(), config.grad_clip_norm)
-			# scaler.step(optimizer)
-			# scaler.update()
-			
-			optimizer.zero_grad()
-			loss_.backward()
+			scaler.scale(loss_).backward()
 			torch.nn.utils.clip_grad_norm(net.parameters(), config.grad_clip_norm)
-			optimizer.step()
+			scaler.step(optimizer)
+			scaler.update()
+			
+			# optimizer.zero_grad()
+			# loss_.backward()
+			# torch.nn.utils.clip_grad_norm(net.parameters(), config.grad_clip_norm)
+			# optimizer.step()
 
 			train_loss += loss_.item()
 			# total += targets.size(0)
@@ -115,7 +116,7 @@ def train(config):
 				)
 			if ((iteration + 1) % config.snapshot_iter) == 0:
 				torch.save(net.state_dict(), config.checkpoint + "Epoch_" + str(epoch) + '.pth')
-				wandb.save(config.checkpoint + "Epoch" + str(epoch) + '.pth')	
+
 	if rank == 0:
 		print("\n            =======  Training Finished  ======= \n")	
 
@@ -146,4 +147,3 @@ if __name__ == "__main__":
 		os.mkdir(config.checkpoint)
 
 	train(config)
-
