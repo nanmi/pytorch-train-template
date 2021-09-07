@@ -4,7 +4,9 @@ This project is a template for training use Pytorch.
 
 ### News
 :heavy_check_mark: mixed precision training
+
 :heavy_check_mark: distributed training
+
 :heavy_check_mark: wandb monitor
 
 ### Train
