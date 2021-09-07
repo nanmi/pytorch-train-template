@@ -96,7 +96,6 @@ def train(config):
 			scaler.scale(loss_).backward()
 			torch.nn.utils.clip_grad_norm(net.parameters(), config.grad_clip_norm)
 			scaler.step(optimizer)
-			scaler.step(scheduler)
 			scaler.update()
 			
 			# optimizer.zero_grad()
@@ -121,7 +120,7 @@ def train(config):
 				)
 			if ((iteration + 1) % config.snapshot_iter) == 0:
 				torch.save(net.state_dict(), config.checkpoint + "Epoch_" + str(epoch) + '.pth')
-
+		scheduler.step()
 	if rank == 0:
 		print("\n            =======  Training Finished  ======= \n")	
 
