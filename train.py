@@ -65,6 +65,10 @@ def train(config):
 	L_TV = loss.L_TV()
 
 	optimizer = torch.optim.Adam(net.parameters(), lr=config.lr, weight_decay=config.weight_decay)
+	
+	# https://blog.csdn.net/qyhaill/article/details/103043637
+	scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=2, gamma=0.1)
+
 	if rank == 0:
 		print("            =======  Training  ======= \n")
 	
@@ -92,6 +96,7 @@ def train(config):
 			scaler.scale(loss_).backward()
 			torch.nn.utils.clip_grad_norm(net.parameters(), config.grad_clip_norm)
 			scaler.step(optimizer)
+			scaler.step(scheduler)
 			scaler.update()
 			
 			# optimizer.zero_grad()
